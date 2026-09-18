@@ -5,6 +5,7 @@
 #   make mkdoc-start [HOST=127.0.0.1] [PORT=8001]
 #   make mkdoc-stop
 #   make mkdoc-restart
+#   make mkdoc-deploy      dispatch the GitHub Pages workflow for pushed main
 
 SHELL := /bin/bash
 .ONESHELL:
@@ -22,6 +23,19 @@ RUN_DIR  := .mkdocs-run
 PID_FILE := $(RUN_DIR)/mkdocs-serve.pid
 LOG_FILE := $(RUN_DIR)/mkdocs-serve.log
 
+# GitHub Pages deployment: dispatched, never automatic. The workflow runs
+# only on workflow_dispatch, against main as already pushed to this remote.
+GH            ?= gh
+GITHUB_REPO   := ryansandigan/DELTA-deployment
+DEPLOY_BRANCH := main
+WORKFLOW_FILE := docs.yml
+WORKFLOW_URL  := https://github.com/$(GITHUB_REPO)/actions/workflows/$(WORKFLOW_FILE)
+# Accepted spellings of the origin remote (SSH, or the equivalent HTTPS).
+REMOTE_URLS   := git@github.com:$(GITHUB_REPO).git \
+                 ssh://git@github.com/$(GITHUB_REPO).git \
+                 https://github.com/$(GITHUB_REPO).git \
+                 https://github.com/$(GITHUB_REPO)
+
 # The command line the server is started with. mkdoc-stop only terminates a
 # process whose command line contains this exact config path plus "serve".
 SERVE_CMD := $(PYTHON) -m mkdocs serve -f $(MKDOCS_CFG) -a $(HOST):$(PORT)
@@ -32,7 +46,7 @@ URL_HOST := $(if $(filter 0.0.0.0,$(HOST)),127.0.0.1,$(HOST))
 URL      := http://$(URL_HOST):$(PORT)/
 
 .DEFAULT_GOAL := help
-.PHONY: help mkdoc-start mkdoc-stop mkdoc-restart
+.PHONY: help mkdoc-start mkdoc-stop mkdoc-restart mkdoc-deploy
 
 help:
 	@echo "MkDocs Material preview (local, internal)"
@@ -40,9 +54,14 @@ help:
 	@echo "  make mkdoc-start     start the preview server in the background"
 	@echo "  make mkdoc-stop      stop the server started by this Makefile"
 	@echo "  make mkdoc-restart   stop, then start again"
+	@echo "  make mkdoc-deploy    dispatch the GitHub Pages workflow ($(WORKFLOW_FILE))"
+	@echo "                       for the already-pushed main branch (needs gh)"
 	@echo
 	@echo "  Bind address defaults to $(HOST):$(PORT); override with e.g."
 	@echo "    make mkdoc-start HOST=127.0.0.1 PORT=8001"
+	@echo
+	@echo "  Deploy flow: commit -> push main -> make mkdoc-deploy -> watch"
+	@echo "    $(WORKFLOW_URL)"
 	@echo
 	@echo "  Interpreter: $(PYTHON)"
 	@echo "  Config:      $(MKDOCS_CFG)"
@@ -125,3 +144,31 @@ mkdoc-stop:
 mkdoc-restart:
 	@$(MAKE) --no-print-directory mkdoc-stop
 	$(MAKE) --no-print-directory mkdoc-start HOST="$(HOST)" PORT="$(PORT)"
+
+# Dispatches the Pages workflow on the remote main branch. Every check below is
+# read-only; the only write is the dispatch itself (no commit, push or tag).
+mkdoc-deploy:
+	@fail() { echo "ERROR: $$1" >&2; exit 1; }
+	command -v "$(GH)" >/dev/null 2>&1 \
+		|| fail "GitHub CLI ($(GH)) is not installed - see https://cli.github.com/"
+	"$(GH)" auth status >/dev/null 2>&1 \
+		|| fail "GitHub CLI is not authenticated - run: $(GH) auth login"
+	remote=$$(git config --get remote.origin.url 2>/dev/null || true)
+	case " $(REMOTE_URLS) " in
+		*" $$remote "*) ;;
+		*) fail "origin is '$${remote:-<unset>}', expected git@github.com:$(GITHUB_REPO).git" ;;
+	esac
+	branch=$$(git rev-parse --abbrev-ref HEAD)
+	[ "$$branch" = "$(DEPLOY_BRANCH)" ] \
+		|| fail "current branch is '$$branch', deploy only from $(DEPLOY_BRANCH)"
+	[ -z "$$(git status --porcelain)" ] \
+		|| fail "worktree is not clean - commit or stash first (git status)"
+	git fetch --quiet origin "$(DEPLOY_BRANCH)" \
+		|| fail "could not fetch origin/$(DEPLOY_BRANCH)"
+	local_head=$$(git rev-parse HEAD); remote_head=$$(git rev-parse FETCH_HEAD)
+	[ "$$local_head" = "$$remote_head" ] \
+		|| fail "HEAD ($${local_head:0:12}) differs from origin/$(DEPLOY_BRANCH) ($${remote_head:0:12}) - push first"
+	echo "Dispatching $(WORKFLOW_FILE) on origin/$(DEPLOY_BRANCH) @ $${local_head:0:12}..."
+	"$(GH)" workflow run "$(WORKFLOW_FILE)" --ref "$(DEPLOY_BRANCH)"
+	echo "Deployment dispatched. Watch it at:"
+	echo "  $(WORKFLOW_URL)"
