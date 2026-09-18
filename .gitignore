@@ -1,0 +1,34 @@
+# Local configuration - contains every secret in the deployment
+.env
+
+# TLS certificates and private keys
+certs/
+*.crt
+*.key
+*.pem
+*.pfx
+
+# Database dumps and uploads archives
+backups/
+*.dump
+*.sql
+*.tar
+*.tar.gz
+
+# Local overrides
+docker-compose.override.yml
+
+# Local MkDocs preview runtime state (Makefile mkdoc-* targets)
+.mkdocs-run/
+
+# Generated MkDocs output and local Python virtual environments
+# (mkdocs-material/.gitignore covers the same inside that folder)
+site/
+.venv/
+venv/
+
+# Local AI assistant instruction and settings files
+CLAUDE.md
+AGENT.md
+AGENTS.md
+.claude/

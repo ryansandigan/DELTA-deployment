@@ -1,0 +1,7 @@
+# Material for MkDocs brings mkdocs, pymdown-extensions and the search plugin
+# with it, so this is the only direct dependency.
+#
+# Tested pin. `python -m mkdocs build --strict` completed cleanly with this
+# version on Python 3.13.15 (Windows), pulling in mkdocs 1.6.1,
+# pymdown-extensions 12.0.1 and Markdown 3.10.3 as transitive dependencies.
+mkdocs-material==9.7.7

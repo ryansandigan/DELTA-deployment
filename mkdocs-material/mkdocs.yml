@@ -1,0 +1,66 @@
+site_name: DELTA Deployment
+site_description: >-
+  Install, configure and operate DELTA with Docker Compose - the deployment
+  files, the staged installation procedure, and day-to-day operation.
+
+# site_url is deliberately unset, so every generated link is relative and the
+# site works from any path: a local `mkdocs serve`, a file server, or GitHub
+# Pages under /<repo>/. Set it to the published address if you later want an
+# absolute sitemap or canonical URLs.
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tracking     # the address bar follows the section you are reading
+    - navigation.top          # back-to-top on long pages, and these pages are long
+    - toc.follow              # the table of contents scrolls with the page
+    - content.code.copy       # copy button on every command block
+    - content.tabs.link       # picking PowerShell once picks it on every page
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition                # the few operationally critical warnings
+  - pymdownx.superfences      # code blocks inside content tabs
+  - pymdownx.tabbed:
+      alternate_style: true   # PowerShell / Bash-zsh, bundled / external database
+  - toc:
+      permalink: true
+      toc_depth: 4            # step 6.1 / 6.2 / 6.3 are h4 and must be linkable
+
+nav:
+  - Install DELTA: index.md
+  - Install Docker:
+      - Windows: docker/windows.md
+      - macOS: docker/macos.md
+      - Ubuntu: docker/ubuntu.md
+      - Debian: docker/debian.md
+      - AlmaLinux: docker/almalinux.md
+  - Configuration: configuration.md
+  - Deployment Options: deployment-options.md
+  - Operations:
+      - Lifecycle: lifecycle.md
+      - Update: update.md
+      - Backup and Restore: backup-restore.md
+      - Troubleshooting: troubleshooting.md

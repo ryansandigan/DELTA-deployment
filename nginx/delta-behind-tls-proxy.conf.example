@@ -1,0 +1,116 @@
+# =============================================================================
+# DELTA - NGINX behind a TLS-terminating gateway
+#
+#   browser --HTTPS--> your gateway / WAF / load balancer --HTTP--> this nginx
+#                                                          --HTTP--> delta:3000
+#
+# USE THIS FILE ONLY FOR THAT TOPOLOGY. It trusts the X-Forwarded-* headers it
+# receives, because it assumes a trusted gateway you operate sets them. Reached
+# directly by a client, those same headers are attacker-controlled.
+#
+# Three requirements, none optional:
+#
+#   1. TLS terminates at your gateway, and that gateway is the ONLY thing that
+#      reaches this nginx.
+#   2. This nginx must not be reachable from anywhere else. Publish it on a
+#      private address or a private network - see docs/deployment-options.md,
+#      "Choosing the published address".
+#   3. Your gateway must preserve the original Host header. The Origin check
+#      below compares against it, and DELTA derives its own origin from it. A
+#      gateway that substitutes an internal name will keep failing.
+#
+# To use it, replace the nginx volume entry in docker-compose.yml with:
+#
+#   - ./nginx/delta-behind-tls-proxy.conf.example:/etc/nginx/conf.d/delta.conf:ro
+#
+# The .example suffix keeps this file out of nginx's own conf.d/*.conf include,
+# so it is never loaded by accident alongside the default.
+#
+# There is no TLS server block here on purpose: TLS has already been terminated
+# upstream, and this proxy speaks plain HTTP on both sides.
+# =============================================================================
+
+# Use what the gateway said, or fall back to what this server can see. The
+# fallbacks matter: they keep the file working if a header is missing, instead
+# of forwarding an empty value.
+map $http_x_forwarded_proto $delta_forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
+map $http_x_forwarded_host $delta_forwarded_host {
+    default $http_x_forwarded_host;
+    ""      $http_host;
+}
+
+# Without this, a request that arrived at the gateway on 443 is forwarded as
+# X-Forwarded-Proto: https with X-Forwarded-Port: 80, and anything rebuilding
+# an absolute URL from the pair gets it wrong.
+map $http_x_forwarded_port $delta_forwarded_port {
+    default $http_x_forwarded_port;
+    ""      $server_port;
+}
+
+# WebSocket upgrades: "Connection: upgrade" only when the client asked for one,
+# "Connection: close" otherwise.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+server {
+    listen      80 default_server;
+    server_name _;
+
+    client_max_body_size 64m;
+
+    # -----------------------------------------------------------------------
+    # Same-host Origin normalisation - the reason this file exists.
+    #
+    # React Router checks CSRF by comparing the browser's Origin against the
+    # origin of the request DELTA actually received. The browser spoke HTTPS to
+    # your gateway and sent `Origin: https://<host>`; the hop to DELTA is plain
+    # HTTP, so DELTA computes `http://<host>`. Same site, different scheme, and
+    # every state-changing request fails with 403 while the site still loads.
+    #
+    # This rewrites the scheme, and only when the Origin is the SAME host the
+    # request is already addressed to:
+    #
+    #   * Foreign origins are forwarded unchanged and still rejected by DELTA.
+    #     That is the point of the check, not an oversight.
+    #   * It is a whole-string equality test. Never turn it into a regex, a
+    #     prefix, a suffix or a wildcard match - each of those converts a
+    #     scheme fix into an origin bypass, and
+    #     `https://<host>.attacker.example` starts being accepted.
+    #   * Only the scheme is ever rewritten. The host never is.
+    #   * A request with no Origin produces an empty value, and nginx omits an
+    #     empty proxy_set_header entirely, so such requests are untouched.
+    # -----------------------------------------------------------------------
+    set $delta_origin $http_origin;
+
+    if ($http_origin = "https://$http_host") {
+        set $delta_origin "http://$http_host";
+    }
+
+    location / {
+        # The Compose service name, never localhost.
+        proxy_pass http://delta:3000;
+
+        proxy_http_version 1.1;
+
+        # Host is the raw header rather than $host, so that it agrees exactly
+        # with the $http_host the Origin comparison above is built on.
+        proxy_set_header Host              $http_host;
+        proxy_set_header Origin            $delta_origin;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $delta_forwarded_proto;
+        proxy_set_header X-Forwarded-Host  $delta_forwarded_host;
+        proxy_set_header X-Forwarded-Port  $delta_forwarded_port;
+
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $connection_upgrade;
+
+        proxy_read_timeout 300s;
+    }
+}

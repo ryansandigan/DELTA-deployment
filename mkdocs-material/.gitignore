@@ -1,0 +1,6 @@
+# Generated site
+site/
+
+# Local virtual environment
+.venv/
+venv/
